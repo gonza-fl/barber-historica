@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Client {
+  id        String          @id @default(uuid())
+  name      String
+  phone     String?
+  photoUrl  String?
+  notes     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  records   HaircutRecord[]
+}
+
+model Service {
+  id             String          @id @default(uuid())
+  name           String
+  price          Float
+  records        HaircutRecord[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  recordServices RecordService[]
+}
+
+enum RecordStatus {
+  COMPLETED
+  PROGRAMMED
+  CANCELED
+}
+
+model HaircutRecord {
+  id             String          @id @default(uuid())
+  clientId       String
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status         RecordStatus    @default(COMPLETED)
+  scheduledDate  DateTime?
+  pricePaid      Float           @default(0)
+  date           DateTime        @default(now())
+  haircutType    String // e.g., "Fade", "Classic" (Optional descriptive name)
+  technicalNotes String? // e.g., "Peine 2 a los lados, tijera arriba"
+  photoUrls      String[] // Array of URLs stored in Supabase Storage
+  services       RecordService[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  service        Service?        @relation(fields: [serviceId], references: [id])
+  serviceId      String?
+}
+
+model RecordService {
+  id        String        @id @default(uuid())
+  recordId  String
+  record    HaircutRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service       @relation(fields: [serviceId], references: [id])
+  price     Float // Current price at the time of the record
+  createdAt DateTime      @default(now())
+}
