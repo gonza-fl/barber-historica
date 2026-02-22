@@ -47,7 +47,7 @@ COPY --from=build /app/dist ./dist
 
 # Copy Prisma schema (needed at runtime) and generated client
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/generated ./generated
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
 # Copy package.json for ESM "type":"module" resolution
 COPY package.json ./
