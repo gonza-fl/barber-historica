@@ -6,3 +6,5 @@ dist
 *.log
 frontend/dist
 backend/dist
+.vercel
+.env*

@@ -9,6 +9,9 @@ import { ClientDetails } from '@/components/ClientDetails'
 import { ServicesManager } from '@/components/ServicesManager'
 import { Dashboard } from '@/components/Dashboard'
 import { Toaster } from '@/components/ui/sonner'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { LogOut } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL
 
@@ -25,7 +28,8 @@ interface Client {
 
 type View = 'clients' | 'dashboard' | 'services'
 
-function App() {
+function AppContent() {
+  const { session, signOut } = useAuth()
   const [currentView, setCurrentView] = useState<View>('clients')
   const [search, setSearch] = useState('')
   const [clients, setClients] = useState<Client[]>([])
@@ -33,16 +37,25 @@ function App() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
 
   const fetchClients = useCallback(async () => {
+    if (!session?.access_token) return
     try {
       setLoading(true)
-      const response = await axios.get(`${API_URL}/clients`)
+      const response = await axios.get(`${API_URL}/clients`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
       setClients(response.data)
     } catch (error) {
       console.error('Error fetching clients:', error)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [session])
+
+  useEffect(() => {
+    if (session?.access_token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${session.access_token}`
+    }
+  }, [session])
 
   useEffect(() => {
     if (currentView === 'clients') {
@@ -178,8 +191,26 @@ function App() {
           <Settings className="w-6 h-6" />
           <span className="text-[10px]">Servicios</span>
         </Button>
+        <Button 
+          variant="ghost" 
+          className="flex flex-col gap-1 h-auto text-slate-400 hover:text-red-500"
+          onClick={() => signOut()}
+        >
+          <LogOut className="w-6 h-6" />
+          <span className="text-[10px]">Salir</span>
+        </Button>
       </nav>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <ProtectedRoute>
+        <AppContent />
+      </ProtectedRoute>
+    </AuthProvider>
   )
 }
 

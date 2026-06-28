@@ -6,8 +6,15 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { z } from 'zod';
 
+import jwt from '@fastify/jwt';
+
 const fastify = Fastify({
   logger: true
+});
+
+// Register JWT
+fastify.register(jwt, {
+  secret: process.env.SUPABASE_JWT_SECRET || 'super-secret-fallback-change-me'
 });
 
 const pool = new pg.Pool({ connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL });
@@ -18,6 +25,20 @@ const prisma = new PrismaClient({ adapter });
 await fastify.register(cors, {
   origin: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+});
+
+// Authentication Hook
+fastify.addHook('preHandler', async (request, reply) => {
+  // Public routes
+  if (request.url === '/api/health' || request.method === 'OPTIONS') {
+    return;
+  }
+
+  try {
+    await request.jwtVerify();
+  } catch (err: any) {
+    reply.status(401).send({ message: 'Unauthorized', error: err.message });
+  }
 });
 
 // Health check
