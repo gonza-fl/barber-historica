@@ -49,8 +49,10 @@ fastify.get('/api/health', async () => {
 // --- CLIENTS ROUTES ---
 
 // Get all clients
-fastify.get('/api/clients', async () => {
+fastify.get('/api/clients', async (request) => {
+  const userId = (request.user as any).sub;
   return prisma.client.findMany({
+    where: { userId },
     orderBy: { name: 'asc' },
     include: {
       _count: {
@@ -69,9 +71,12 @@ const createClientSchema = z.object({
 });
 
 fastify.post('/api/clients', async (request, reply) => {
+  const userId = (request.user as any).sub;
   try {
     const data = createClientSchema.parse(request.body);
-    const client = await prisma.client.create({ data });
+    const client = await prisma.client.create({
+      data: { ...data, userId }
+    });
     return client;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -84,8 +89,9 @@ fastify.post('/api/clients', async (request, reply) => {
 // Get client by ID with history
 fastify.get('/api/clients/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
-  const client = await prisma.client.findUnique({
-    where: { id },
+  const userId = (request.user as any).sub;
+  const client = await prisma.client.findFirst({
+    where: { id, userId },
     include: {
       records: {
         orderBy: { date: 'desc' },
@@ -108,8 +114,10 @@ fastify.get('/api/clients/:id', async (request, reply) => {
 // --- SERVICES ROUTES ---
 
 // Get all services
-fastify.get('/api/services', async () => {
+fastify.get('/api/services', async (request) => {
+  const userId = (request.user as any).sub;
   return prisma.service.findMany({
+    where: { userId },
     orderBy: { name: 'asc' }
   });
 });
@@ -121,9 +129,12 @@ const serviceSchema = z.object({
 });
 
 fastify.post('/api/services', async (request, reply) => {
+  const userId = (request.user as any).sub;
   try {
     const data = serviceSchema.parse(request.body);
-    const service = await prisma.service.create({ data });
+    const service = await prisma.service.create({
+      data: { ...data, userId }
+    });
     return service;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -136,6 +147,15 @@ fastify.post('/api/services', async (request, reply) => {
 // Update service
 fastify.patch('/api/services/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  const userId = (request.user as any).sub;
+
+  const existing = await prisma.service.findFirst({
+    where: { id, userId }
+  });
+  if (!existing) {
+    return reply.status(404).send({ message: 'Service not found' });
+  }
+
   try {
     const data = serviceSchema.partial().parse(request.body);
     const service = await prisma.service.update({
@@ -154,21 +174,31 @@ fastify.patch('/api/services/:id', async (request, reply) => {
 // Delete service
 fastify.delete('/api/services/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  const userId = (request.user as any).sub;
+
+  const existing = await prisma.service.findFirst({
+    where: { id, userId }
+  });
+  if (!existing) {
+    return reply.status(404).send({ message: 'Service not found' });
+  }
+
   await prisma.service.delete({ where: { id } });
   return { success: true };
 });
 
 // --- STATS ROUTES ---
 
-fastify.get('/api/stats/financial', async () => {
+fastify.get('/api/stats/financial', async (request) => {
+  const userId = (request.user as any).sub;
   const [completedRecords, programmedRecords] = await Promise.all([
     prisma.haircutRecord.findMany({
-      where: { status: 'COMPLETED' },
+      where: { status: 'COMPLETED', userId },
       select: { pricePaid: true, date: true },
       orderBy: { date: 'asc' }
     }),
     prisma.haircutRecord.findMany({
-      where: { status: 'PROGRAMMED' },
+      where: { status: 'PROGRAMMED', userId },
       select: { pricePaid: true },
     })
   ]);
@@ -199,6 +229,15 @@ fastify.get('/api/stats/financial', async () => {
 // Update client (supporting photoUrl update)
 fastify.patch('/api/clients/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  const userId = (request.user as any).sub;
+
+  const existing = await prisma.client.findFirst({
+    where: { id, userId }
+  });
+  if (!existing) {
+    return reply.status(404).send({ message: 'Client not found' });
+  }
+
   try {
     const data = z.object({
       photoUrl: z.string().optional(),
@@ -235,16 +274,33 @@ const createRecordSchema = z.object({
 });
 
 fastify.post('/api/records', async (request, reply) => {
+  const userId = (request.user as any).sub;
   try {
     const data = createRecordSchema.parse(request.body);
     
-    // Fetch prices for the services to store them in RecordService
-    const services = await prisma.service.findMany({
-      where: { id: { in: data.serviceIds } }
+    // Verify client belongs to this user
+    const client = await prisma.client.findFirst({
+      where: { id: data.clientId, userId }
     });
+    if (!client) {
+      return reply.status(400).send({ message: 'Client not found or does not belong to user' });
+    }
+
+    // Fetch prices for the services to store them in RecordService, verifying they belong to user
+    const services = await prisma.service.findMany({
+      where: { 
+        id: { in: data.serviceIds },
+        userId
+      }
+    });
+
+    if (services.length !== data.serviceIds.length) {
+      return reply.status(400).send({ message: 'One or more services not found or do not belong to user' });
+    }
 
     const record = await prisma.haircutRecord.create({
       data: {
+        userId,
         clientId: data.clientId,
         status: data.status,
         scheduledDate: data.scheduledDate ? new Date(data.scheduledDate) : null,
@@ -275,9 +331,18 @@ fastify.post('/api/records', async (request, reply) => {
   }
 });
 
-// Update record status (e.g., confirm a programmed appointment)
+// Update haircut record
 fastify.patch('/api/records/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  const userId = (request.user as any).sub;
+
+  const existingRecord = await prisma.haircutRecord.findFirst({
+    where: { id, userId }
+  });
+  if (!existingRecord) {
+    return reply.status(404).send({ message: 'Record not found' });
+  }
+
   try {
     const data = z.object({
       haircutType: z.string().optional(),
@@ -289,7 +354,6 @@ fastify.patch('/api/records/:id', async (request, reply) => {
       photoUrls: z.array(z.string()).optional(),
     }).parse(request.body);
 
-    // If serviceIds are provided, we need to handle the many-to-many update
     const updateData: any = {
       haircutType: data.haircutType,
       technicalNotes: data.technicalNotes,
@@ -301,13 +365,20 @@ fastify.patch('/api/records/:id', async (request, reply) => {
     };
 
     if (data.serviceIds) {
-      // Fetch prices for the new services
+      // Fetch prices for the new services, verifying they belong to user
       const services = await prisma.service.findMany({
-        where: { id: { in: data.serviceIds } }
+        where: { 
+          id: { in: data.serviceIds },
+          userId
+        }
       });
 
+      if (services.length !== data.serviceIds.length) {
+        return reply.status(400).send({ message: 'One or more services not found or do not belong to user' });
+      }
+
       updateData.services = {
-        deleteMany: {}, // Remove existing associations
+        deleteMany: {},
         create: services.map(s => ({
           serviceId: s.id,
           price: s.price

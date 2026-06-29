@@ -11,6 +11,7 @@ datasource db {
 
 model Client {
   id        String          @id @default(uuid())
+  userId    String
   name      String
   phone     String?
   photoUrl  String?
@@ -22,6 +23,7 @@ model Client {
 
 model Service {
   id             String          @id @default(uuid())
+  userId         String
   name           String
   price          Float
   records        HaircutRecord[]
@@ -38,6 +40,7 @@ enum RecordStatus {
 
 model HaircutRecord {
   id             String          @id @default(uuid())
+  userId         String
   clientId       String
   client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
   status         RecordStatus    @default(COMPLETED)
